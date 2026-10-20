@@ -76,40 +76,40 @@ grant insert,update on public.css_payments to authenticated;
 grant insert,update,delete on public.css_ledger to authenticated;
 -- Authorization roles: admin, treasurer, officer; Auth app_metadata only
 create policy css_members_read on public.css_members for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_members_write on public.css_members for all to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'))
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'))
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'));
 create policy css_payments_read on public.css_payments for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_payments_write on public.css_payments for insert to authenticated
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer'));
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer'));
 create policy css_payments_update on public.css_payments for update to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer'))
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer'))
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer'));
 create policy css_ledger_read on public.css_ledger for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_ledger_insert on public.css_ledger for insert to authenticated
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null);
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null);
 create policy css_ledger_update on public.css_ledger for update to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null)
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null);
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null)
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer') and payment_id is null);
 create policy css_ledger_delete on public.css_ledger for delete to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' = 'admin' and payment_id is null);
+ using ((select auth.jwt())->'app_metadata'->>'css_role' = 'admin' and payment_id is null);
 create policy css_events_read on public.css_events for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_events_write on public.css_events for all to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'))
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'))
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'));
 create policy css_assets_read on public.css_assets for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_assets_write on public.css_assets for all to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'))
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'))
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'));
 create policy css_announcements_read on public.css_announcements for select to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','treasurer','officer'));
 create policy css_announcements_write on public.css_announcements for all to authenticated
- using (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'))
- with check (auth.jwt()->'app_metadata'->>'css_role' in ('admin','officer'));
+ using ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'))
+ with check ((select auth.jwt())->'app_metadata'->>'css_role' in ('admin','officer'));
 -- Important: css_ledger is intentionally non-deletable for regular users.
 -- Payments are append-only for client: removing a member with transactions is disallowed by FK.
