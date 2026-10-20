@@ -18,6 +18,7 @@ jobs:
       - name: Validate JavaScript syntax
         run: |
           node --version
+          node scripts/build.mjs --check
           node --check app.js
           node --check register.js
           node --check api.js
