@@ -22,7 +22,7 @@ jobs:
           node --check app.js
           node --check register.js
           node --check api.js
-          node --test tests/*.test.mjs
+          node --test --test-concurrency=1 tests/*.test.mjs
           node --check config.js
       - name: Check deploy files
         run: |
