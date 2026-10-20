@@ -18,7 +18,7 @@ jobs:
       - name: Validate JavaScript syntax
         run: |
           node --version
-          node --check app.js\n          node --check api.js\n          node --test tests/static-auth.test.mjs
+          node --check app.js\n          node --check api.js\n          node --test tests/*.test.mjs
           node --check config.js
       - name: Check deploy files
         run: |
