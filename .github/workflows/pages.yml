@@ -18,7 +18,7 @@ jobs:
       - name: Validate JavaScript syntax
         run: |
           node --version
-          node --check app.js
+          node --check app.js\n          node --check api.js\n          node --test tests/static-auth.test.mjs
           node --check config.js
       - name: Check deploy files
         run: |
@@ -51,7 +51,7 @@ jobs:
       - name: Prepare public site
         run: |
           mkdir -p _site
-          cp index.html style.css app.js config.js _site/
+          cp index.html style.css app.js api.js config.js _site/
           touch _site/.nojekyll
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
