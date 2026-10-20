@@ -11,12 +11,12 @@ test('login form cannot navigate to GET URL',()=>{
 });
 test('application boots from a self-contained same-origin classic script',()=>{
  const app=readFileSync('app.js','utf8');
- assert.doesNotMatch(app,/^\\s*(import|export)\\s/m);
- assert.match(app,/window\\.PUICSA_READY=true/);
+ assert.ok(!app.includes("import { db } from"));
+ assert.ok(app.includes('window.PUICSA_READY=true'));
  assert.match(app,/grant_type=password/);
  assert.match(app,/referrerPolicy:'no-referrer'/);
  const html=readFileSync('index.html','utf8');
- assert.match(html,/<script defer src="\\.\\/app\\.js\\?v=/);
+ assert.ok(html.includes('<script defer src="./app.js?v='));
  assert.doesNotMatch(app,/esm\.sh|unpkg\.com/);
  const api=readFileSync('api.js','utf8');
  assert.match(api,/grant_type=password/);
