@@ -209,13 +209,128 @@ async function fetchAll(k){const rows=[];let from=0;for(;;){const {data:page,err
 async function refresh(){const entries=await Promise.all(tables.map(async k=>[k,await fetchAll(k)]));for(const [k,rows] of entries)data[k]=rows;render()}
 function mapMember(v){const m=(data.members||[]).find(x=>x.id===v);return m?m.name+' ('+m.student_id+')':'—'}
 function cell(k,v){if(k==='member_id')return esc(mapMember(v));if(k==='ledger_id')return esc((data.ledger||[]).find(x=>x.id===v)?.description||'—');if(k==='asset_id')return esc((data.assets||[]).find(x=>x.id===v)?.name||'—');if(k==='event_id')return esc((data.events||[]).find(x=>x.id===v)?.title||'—');if(k==='registration_enabled')return v?'開放':'未開放';if(k==='semester')return v===1?'上學期':'下學期';if(k==='amount'||k==='budget')return fmt(v);if(k==='direction')return v==='income'?'<span class="pill green">收入</span>':'<span class="pill orange">支出</span>';if(k==='status'||k==='reimbursement_status')return '<span class="pill">'+esc(v)+'</span>';if(['starts_at','published_at','changed_at','due_at','returned_at','checked_in_at','closed_at','requested_at','created_at'].includes(k))return esc(v?new Date(v).toLocaleString('zh-TW'):'—');return esc(v||'—')}
-function tableView(k,items){const c=cfg[k];return '<div class="tablewrap"><table><thead><tr>'+c.columns.map(x=>'<th>'+x[1]+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+(items.length?items.map(r=>'<tr>'+c.columns.map(x=>'<td>'+cell(x[0],r[x[0]])+'</td>').join('')+'<td>'+(canWrite(k)&&k!=='payments'&&!(k==='ledger'&&r.payment_id)?'<button class="secondary" data-edit="'+esc(r.id)+'">編輯</button>':'—')+'</td></tr>').join(''):'<tr><td colspan="'+(c.columns.length+1)+'" class="empty">目前沒有資料</td></tr>')+'</tbody></table></div>'}
+function rowButtons(k,r){
+ let parts=[];
+ if(canWrite(k)&&!['payments','periods'].includes(k)&&!(k==='ledger'&&r.payment_id)&&!(k==='reimbursements'&&r.status!=='pending'))parts.push('<button class="secondary" data-edit="'+esc(r.id)+'">編輯</button>');
+ if(k==='periods'&&ARCHIVE_ROLES.includes(role))parts.push('<button class="secondary" data-toggle-period="'+esc(r.id)+'">'+(r.status==='open'?'封存學期':'重新開啟')+'</button>');
+ if(k==='events'&&r.registration_enabled)parts.push('<button class="secondary" data-qr="'+esc(r.id)+'">表單 / QR</button>');
+ if(k==='registrations'&&EVENT_ROLES.includes(role)&&!r.checked_in_at)parts.push('<button class="secondary" data-checkin="'+esc(r.id)+'">簽到</button>');
+ if(k==='loans'&&ASSET_ROLES.includes(role)&&!r.returned_at)parts.push('<button class="secondary" data-return="'+esc(r.id)+'">歸還</button>');
+ if(k==='payments')parts.push('<button class="secondary" data-receipt="'+esc(r.id)+'">收據</button>');
+ return parts.join(' ')||'—';
+}
+function tableView(k,items){const c=cfg[k];return '<div class="tablewrap"><table><thead><tr>'+c.columns.map(x=>'<th>'+x[1]+'</th>').join('')+'<th>操作</th></tr></thead><tbody>'+(items.length?items.map(r=>'<tr>'+c.columns.map(x=>'<td>'+cell(x[0],r[x[0]])+'</td>').join('')+'<td>'+rowButtons(k,r)+'</td></tr>').join(''):'<tr><td colspan="'+(c.columns.length+1)+'" class="empty">目前沒有資料</td></tr>')+'</tbody></table></div>'}
 function dashboard(){const d=data, members=d.members||[],payments=d.payments||[],ledger=d.ledger||[],events=d.events||[];const income=ledger.filter(x=>x.direction==='income').reduce((a,x)=>a+Number(x.amount),0),expense=ledger.filter(x=>x.direction==='expense').reduce((a,x)=>a+Number(x.amount),0),pending=ledger.filter(x=>x.reimbursement_status==='pending').length;const rows=ledger.slice().sort((a,b)=>String(b.occurred_on).localeCompare(String(a.occurred_on))).slice(0,6);const categories=Object.entries(ledger.reduce((a,x)=>(a[x.category]=(a[x.category]||0)+Number(x.amount),a),{})).sort((a,b)=>b[1]-a[1]).slice(0,5);return '<div class="heading-row"><h3>營運概況</h3><button class="secondary" id="reload">↻ 重新整理</button></div><div class="grid"><div class="metric"><div class="cap">總收入</div><strong>'+fmt(income)+'</strong><small>已入帳</small></div><div class="metric"><div class="cap">總支出</div><strong>'+fmt(expense)+'</strong><small>已登錄</small></div><div class="metric"><div class="cap">帳面餘額</div><strong>'+fmt(income-expense)+'</strong><small>收入扣除支出</small></div><div class="metric"><div class="cap">有效會員</div><strong>'+members.filter(x=>x.status==='active').length+'</strong><small>全體 '+members.length+' 名會員</small></div></div><div class="grid" style="margin-top:17px"><div class="metric"><div class="cap">活動數量</div><strong>'+events.length+'</strong><small>管理中的活動</small></div><div class="metric"><div class="cap">待核銷筆數</div><strong>'+pending+'</strong><small>請總務人員確認</small></div><div class="metric"><div class="cap">系費筆數</div><strong>'+payments.length+'</strong><small>歷史收款紀錄</small></div><div class="metric"><div class="cap">器材種類</div><strong>'+(d.assets||[]).length+'</strong><small>已登錄器材</small></div></div><div class="panels"><section class="panel"><h3>最新收支紀錄</h3>'+tableView('ledger',rows)+'</section><section class="panel"><h3>收支類別分析</h3>'+(categories.length?categories.map(([name,n])=>'<div class="bar-item"><div class="bar-label"><span>'+esc(name)+'</span><b>'+fmt(n)+'</b></div><div class="bar-track"><div class="bar-fill" style="width:'+Math.round(n/categories[0][1]*100)+'%"></div></div></div>').join(''):'<div class="empty">新增收支後會顯示分析</div>')+'</section></div>'}
 function choices(type){return {semester:[['1','上學期'],['2','下學期']],direction:[['income','收入'],['expense','支出']],approval:[['pending','待審核'],['approved','核准'],['rejected','退件']],yesno:[['false','關閉'],['true','開放']],reimbursement:[['none','無需核銷'],['pending','待核銷'],['approved','已核銷'],['rejected','退件']],eventstatus:[['planning','規劃中'],['open','進行中'],['completed','已完成'],['cancelled','已取消']],method:[['cash','現金'],['transfer','匯款'],['other','其他']]}[type]}
 function field([name,label,type='text',required],val){let value=val??(type==='date'?new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10):type==='number'?'0':'');if(['period','asset','expense'].includes(type)){const rows=type==='period'?(data.periods||[]):type==='asset'?(data.assets||[]):(data.ledger||[]).filter(l=>l.direction==='expense');return '<label>'+label+'<select name="'+name+'" required><option value="">請選擇</option>'+rows.map(row=>{const text=type==='period'?(row.academic_year+'-'+row.semester+(row.status==='closed'?'【封存】':'')):type==='asset'?row.name:(row.description+' ('+fmt(row.amount)+')');return '<option value="'+esc(row.id)+'" '+(value===row.id?'selected':'')+'>'+esc(text)+'</option>'}).join('')+'</select></label>'}if(type==='member'){return '<label>'+label+'<select name="'+name+'" required><option value="">選擇會員</option>'+(data.members||[]).map(m=>'<option value="'+esc(m.id)+'" '+(value===m.id?'selected':'')+'>'+esc(m.student_id+' '+m.name)+'</option>').join('')+'</select></label>'}if(choices(type))return '<label>'+label+'<select name="'+name+'">'+choices(type).map(([v,l])=>'<option value="'+v+'" '+(String(value)===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label>';if(type==='datetime-local'&&value){const d=new Date(value);if(!Number.isNaN(d.getTime())){const local=new Date(d.getTime()-d.getTimezoneOffset()*60000);value=local.toISOString().slice(0,16);}else value=String(value).slice(0,16)}if(type==='number'&&name==='year_level'&&val==null)value='';if(type==='textarea')return '<label class="field-span">'+label+'<textarea name="'+name+'" rows="3">'+esc(value)+'</textarea></label>';return '<label>'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'" '+(required?'required':'')+(type==='number'?' min="0" step="any"':'')+'></label>'}
 function editForm(k,r){const c=cfg[k];const editable=(k==='ledger'&&r?.payment_id)|| (k==='reimbursements'&&r?.status!=='pending')?false:canWrite(k);if(!editable)return '';return '<section class="panel" id="edit-panel"><h3>'+(r?'編輯':'新增')+c.title+'</h3><form id="entry-form"><div class="form-grid">'+c.fields.map(x=>field(x,r?.[x[0]])).join('')+'</div><div class="form-actions"><button class="secondary" type="button" id="cancel">取消</button><button class="primary" type="submit">儲存資料</button></div></form></section>'}
-function render(){const el=$('#content');$('#page-title').textContent=page==='overview'?'營運總覽':cfg[page].title;if(page==='overview'){el.innerHTML=dashboard();$('#reload').onclick=async()=>{try{await refresh();toast('資料已更新')}catch(e){toast(e.message,true)}};return}const c=cfg[page],r=data[page]||[];el.innerHTML='<p class="section-intro">'+c.description+'</p><div class="panel"><div class="toolbar"><input id="search" placeholder="搜尋資料..."><div class="inline-actions"><button class="secondary" id="export">匯出 CSV</button>'+(canWrite(page)?'<button class="primary" id="add">＋ 新增資料</button>':'')+'</div></div><div id="records">'+tableView(page,r)+'</div></div><div id="editor"></div>';$('#search').oninput=e=>{const q=e.target.value.toLowerCase();$('#records').innerHTML=tableView(page,r.filter(x=>JSON.stringify(x).toLowerCase().includes(q)));bindEdits()};$('#export').onclick=()=>exportCSV(page);if($('#add'))$('#add').onclick=()=>openEditor(null);bindEdits()}
-function bindEdits(){document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor((data[page]||[]).find(r=>r.id===b.dataset.edit)))}
+function render(){
+ const el=$('#content');
+ if(page==='handover'){renderHandover();return}
+ $('#page-title').textContent=page==='overview'?'營運總覽':cfg[page].title;
+ if(page==='overview'){
+  el.innerHTML=dashboard();
+  $('#reload').onclick=async()=>{try{await refresh();toast('資料已更新')}catch(e){toast(e.message,true)}};
+  return;
+ }
+ const c=cfg[page],r=data[page]||[];
+ const special=page==='members'&&MEMBER_ROLES.includes(role)?'<label class="secondary small-upload">批次匯入 CSV<input id="csv-members" type="file" accept=".csv,text/csv" hidden></label>':'';
+ el.innerHTML='<p class="section-intro">'+c.description+'</p><div class="panel"><div class="toolbar"><input id="search" placeholder="搜尋資料..."><div class="inline-actions">'+special+'<button class="secondary" id="export">匯出 CSV</button>'+(canWrite(page)&&page!=='period_audit'?'<button class="primary" id="add">＋ 新增資料</button>':'')+'</div></div><div id="records">'+tableView(page,r)+'</div></div><div id="editor"></div>';
+ $('#search').oninput=e=>{const q=e.target.value.toLowerCase();$('#records').innerHTML=tableView(page,r.filter(x=>JSON.stringify(x).toLowerCase().includes(q)));bindEdits()};
+ $('#export').onclick=()=>exportCSV(page);
+ if($('#add'))$('#add').onclick=()=>openEditor(null);
+ if($('#csv-members'))$('#csv-members').onchange=importMembers;
+ bindEdits();
+}
+function bindEdits(){
+ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor((data[page]||[]).find(r=>r.id===b.dataset.edit)));
+ document.querySelectorAll('[data-toggle-period]').forEach(b=>b.onclick=()=>closePeriod(b.dataset.togglePeriod));
+ document.querySelectorAll('[data-qr]').forEach(b=>b.onclick=()=>showEventQr(b.dataset.qr));
+ document.querySelectorAll('[data-checkin]').forEach(b=>b.onclick=()=>setDate('registrations',b.dataset.checkin,'checked_in_at'));
+ document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>setDate('loans',b.dataset.return,'returned_at'));
+ document.querySelectorAll('[data-receipt]').forEach(b=>b.onclick=()=>printReceipt(b.dataset.receipt));
+}
+async function closePeriod(id){
+ if(!ARCHIVE_ROLES.includes(role))return toast('無此操作權限',true);
+ const current=(data.periods||[]).find(x=>x.id===id);
+ if(!current)return;
+ const next=current.status==='open'?'closed':'open';
+ const verb=next==='closed'?'執行封存':'重新開啟';
+ const reason=prompt('確認'+verb+'「'+current.academic_year+'學年度第'+current.semester+'學期」？請填寫原因（至少4字）：');
+ if(reason===null)return;
+ if(reason.trim().length<4)return toast('請填寫至少4字的原因',true);
+ if(!confirm('確定'+verb+'？此操作會保留稽核紀錄。'))return;
+ const {error}=await db.from('css_periods').update({status:next,close_note:reason.trim()}).eq('id',id);
+ if(error)return toast(error.message,true);
+ await refresh();toast('學期已'+(next==='closed'?'封存':'重新開啟'));
+}
+function showEventQr(id){
+ const event=(data.events||[]).find(x=>x.id===id);
+ if(!event)return;
+ const url=new URL('./register.html',location.href);url.searchParams.set('event',id);
+ const qr='https://api.qrserver.com/v1/create-qr-code/?size=240x240&data='+encodeURIComponent(url.href);
+ const overlay=document.createElement('dialog');
+ overlay.innerHTML='<div class="qr-modal"><h3>'+esc(event.title)+' 報名</h3><p>將此網址或 QR Code 提供給參加者。QR 圖由外部 QR 服務產生，僅傳送公開報名網址。</p><img width="220" height="220" alt="活動報名 QR Code" src="'+esc(qr)+'"><input readonly value="'+esc(url.href)+'"><div class="form-actions"><button class="secondary" id="qr-copy">複製連結</button><button class="secondary" id="qr-close">關閉</button></div></div>';
+ document.body.append(overlay);overlay.showModal();
+ overlay.querySelector('#qr-copy').onclick=async()=>{try{await navigator.clipboard.writeText(url.href);toast('報名連結已複製')}catch{toast('請手動複製連結',true)}};
+ overlay.querySelector('#qr-close').onclick=()=>overlay.close();
+ overlay.onclose=()=>overlay.remove();
+}
+async function setDate(which,id,key){
+ if(!confirm('確認執行此操作？'))return;
+ const {error}=await db.from(cfg[which].table).update({[key]:new Date().toISOString()}).eq('id',id);
+ if(error)return toast(error.message,true);
+ await refresh();toast('狀態已更新');
+}
+function printReceipt(id){
+ const p=(data.payments||[]).find(x=>x.id===id);
+ if(!p)return;
+ const member=mapMember(p.member_id);
+ const html='<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>PUICSA 繳費收據</title><style>body{font:16px sans-serif;max-width:650px;margin:60px auto;line-height:2.4}h1{font-size:24px;border-bottom:3px solid #173b60}strong{font-size:24px}@media print{button{display:none}}</style><h1>PUICSA 系學會繳費收據</h1><p>收據編號：'+esc(p.id)+'<br>會員：'+esc(member)+'<br>學年度：'+esc(p.academic_year)+'／第'+esc(p.semester)+'學期<br>日期：'+esc(p.paid_at)+'<br>付款方式：'+esc(p.payment_method)+'</p><strong>實收金額：'+esc(fmt(p.amount))+'</strong><p>本收據依系統登錄資料產製，必要時請向總務確認入帳。</p><button onclick="print()">列印／另存 PDF</button></html>';
+ const win=window.open('','_blank','noopener,noreferrer');
+ if(!win)return toast('瀏覽器封鎖了收據視窗，請允許快顯視窗',true);
+ win.document.write(html);win.document.close();
+}
+function csvRows(text){
+ const grid=[],row=[];let v='',quoted=false;
+ for(let i=0;i<text.length;i++){
+  const c=text[i];if(quoted){if(c==='"'&&text[i+1]==='"'){v+='"';i++}else if(c==='"')quoted=false;else v+=c}
+  else if(c==='"')quoted=true;
+  else if(c===','){row.push(v);v=''}
+  else if(c==='\n'){row.push(v.replace(/\r$/,''));grid.push([...row]);row.length=0;v=''}
+  else v+=c;
+ }
+ if(v||row.length){row.push(v);grid.push([...row])}
+ return grid;
+}
+async function importMembers(e){
+ const file=e.target.files?.[0];if(!file)return;
+ if(file.size>1024*1024)return toast('CSV 檔案上限 1 MB，請分批處理',true);
+ const values=csvRows((await file.text()).replace(/^\uFEFF/,''));
+ const headers=values.shift()?.map(v=>v.trim());
+ const permitted=['student_id','name','department','class_name','year_level','status'];
+ if(!headers?.includes('student_id')||!headers.includes('name'))return toast('CSV 需要 student_id、name 欄位',true);
+ const rows=values.filter(x=>x.some(y=>y.trim())).map(cols=>{
+  const o={};headers.forEach((h,i)=>{if(permitted.includes(h)&&cols[i]!==undefined)o[h]=cols[i].trim()});
+  if(!o.year_level)delete o.year_level;else o.year_level=Number(o.year_level);
+  if(!o.status)delete o.status;return o;
+ });
+ if(rows.length>300)return toast('一次最多匯入300人',true);
+ if(!confirm('確定匯入 '+rows.length+' 位會員？已存在的學號會被資料庫拒絕。'))return;
+ const {error}=await db.from('css_members').insert(rows);
+ if(error)return toast('匯入失敗：'+error.message,true);
+ await refresh();toast('會員批次匯入成功');
+}
+function renderHandover(){
+ $('#page-title').textContent='交接與資料備份';
+ $('#content').innerHTML='<div class="panel"><h3>系學會交接中心</h3><p class="section-intro">權限更動由 Supabase 專案持有人審核。總務封存帳務、會長確認年度交接，請務必另存離線加密備份。</p><p>你的職務：<b>'+esc(STAFF_NAMES[role]||role)+'</b></p><button id="backup" class="primary">匯出可讀取的系統資料 JSON 備份</button><p class="note">不包含受限制的會員聯絡資料。務必存放於受控位置；還原流程需由資訊部於測試環境演練。</p></div><div class="panel"><h3>角色職責</h3><div class="role-grid">'+Object.entries(STAFF_NAMES).map(([r,n])=>'<div><b>'+esc(n)+'</b><small>'+esc(r)+'</small></div>').join('')+'</div></div>';
+ $('#backup').disabled=!ARCHIVE_ROLES.includes(role);
+ $('#backup').onclick=()=>{
+  const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),role,data},null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);
+ };
+}
+
 function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;if(f[2]==='yesno')payload[f[0]]=payload[f[0]]==='true';for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='reimbursements'&&!r)payload.status='pending';if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
 function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');const first=s.trimStart().charAt(0);if(first && '=+@-'.includes(first))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
 async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(role==='admin')role='information';if(!Object.hasOwn(STAFF_NAMES,role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+STAFF_NAMES[role];const auditNav=document.querySelector('[data-page="audit"]');if(auditNav)auditNav.classList.toggle('hidden',role==='officer');try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
