@@ -207,7 +207,14 @@ const tables=['members','contacts','payments','ledger','reimbursements','periods
 function toast(msg,bad=false){const el=$('#toast');el.textContent=msg;el.className=bad?'bad':'';el.style.display='block';setTimeout(()=>el.style.display='none',5500)}
 function canWrite(p){if(['audit','period_audit','registrations'].includes(p))return false;return (p==='ledger'||p==='payments'||p==='reimbursements')?FINANCE_ROLES.includes(role):p==='periods'?ARCHIVE_ROLES.includes(role):p==='events'?EVENT_ROLES.includes(role):p==='assets'||p==='loans'?ASSET_ROLES.includes(role):p==='members'||p==='contacts'?MEMBER_ROLES.includes(role):p==='announcements'?ANNOUNCE_ROLES.includes(role):false}
 async function fetchAll(k){const rows=[];let from=0;for(;;){const {data:page,error}=await db.from(cfg[k].table).select(k==='members'?'id,student_id,name,department,class_name,year_level,status,joined_at,created_at':'*').order(['audit','period_audit'].includes(k)?'changed_at':'created_at',{ascending:false}).range(from,from+999);if(error)throw error;rows.push(...(page||[]));if(!page||page.length<1000)break;from+=1000;}return rows}
-async function refresh(){const entries=await Promise.all(tables.map(async k=>[k,await fetchAll(k)]));for(const [k,rows] of entries)data[k]=rows;if(!selectedPeriod&&data.periods?.length)selectedPeriod=data.periods[0].id;render()}
+const CORE_TABLES=['members','payments','ledger','reimbursements','periods','events','assets'];
+async function refresh(){
+ const names=[...new Set([...CORE_TABLES,...(cfg[page]?[page]:[])])];
+ const entries=await Promise.all(names.map(async k=>[k,await fetchAll(k)]));
+ for(const [k,rows] of entries)data[k]=rows;
+ if(!selectedPeriod&&data.periods?.length)selectedPeriod=data.periods[0].id;
+ render();
+}
 function mapMember(v){const m=(data.members||[]).find(x=>x.id===v);return m?m.name+' ('+m.student_id+')':'—'}
 function cell(k,v){if(k==='member_id')return esc(mapMember(v));if(k==='ledger_id')return esc((data.ledger||[]).find(x=>x.id===v)?.description||'—');if(k==='asset_id')return esc((data.assets||[]).find(x=>x.id===v)?.name||'—');if(k==='event_id')return esc((data.events||[]).find(x=>x.id===v)?.title||'—');if(k==='registration_enabled')return v?'開放':'未開放';if(k==='semester')return v===1?'上學期':'下學期';if(k==='amount'||k==='budget')return fmt(v);if(k==='direction')return v==='income'?'<span class="pill green">收入</span>':'<span class="pill orange">支出</span>';if(k==='status'||k==='reimbursement_status')return '<span class="pill">'+esc(v)+'</span>';if(['starts_at','published_at','changed_at','due_at','returned_at','checked_in_at','closed_at','requested_at','created_at'].includes(k))return esc(v?new Date(v).toLocaleString('zh-TW'):'—');return esc(v||'—')}
 function rowButtons(k,r){
@@ -356,9 +363,19 @@ function renderHandover(){
  $('#page-title').textContent='交接與資料備份';
  $('#content').innerHTML='<div class="panel"><h3>系學會交接中心</h3><p class="section-intro">權限更動由 Supabase 專案持有人審核。總務封存帳務、會長確認年度交接，請務必另存離線加密備份。</p><p>你的職務：<b>'+esc(STAFF_NAMES[role]||role)+'</b></p><button id="backup" class="primary">匯出可讀取的系統資料 JSON 備份</button><p class="note">不包含受限制的會員聯絡資料。務必存放於受控位置；還原流程需由資訊部於測試環境演練。</p></div><div class="panel"><h3>角色職責</h3><div class="role-grid">'+Object.entries(STAFF_NAMES).map(([r,n])=>'<div><b>'+esc(n)+'</b><small>'+esc(r)+'</small></div>').join('')+'</div></div>';
  $('#backup').disabled=!ARCHIVE_ROLES.includes(role);
- $('#backup').onclick=()=>{
-  const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),role,data},null,2)],{type:'application/json'});
-  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(url);
+ $('#backup').onclick=async()=>{
+  const button=$('#backup');button.disabled=true;button.textContent='正在整理備份…';
+  try{
+    const permitted=tables.filter(k=>!(k==='contacts'&&!MEMBER_ROLES.includes(role))&&!(k==='registrations'&&!EVENT_ROLES.includes(role))&&!(k==='audit'&&!FINANCE_ROLES.includes(role)));
+    const records=await Promise.all(permitted.map(async k=>[k,await fetchAll(k)]));
+    const snapshot=Object.fromEntries(records);
+    const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),role,data:snapshot},null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download='PUICSA-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    a.click();URL.revokeObjectURL(url);
+    toast('備份已建立，請以加密方式保存');
+  }catch(e){toast('備份失敗：'+e.message,true)}
+  finally{button.disabled=false;button.textContent='匯出可讀取的系統資料 JSON 備份'}
  };
 }
 
@@ -389,7 +406,18 @@ $('#login-form').onsubmit=async e=>{
     button.disabled=false;button.textContent='安全登入 →';
   }
 };
-$('#nav').onclick=e=>{const b=e.target.closest('[data-page]');if(!b)return;page=b.dataset.page;document.querySelectorAll('#nav button').forEach(n=>n.classList.toggle('active',n===b));render()};
+$('#nav').onclick=async e=>{
+ const b=e.target.closest('[data-page]');if(!b)return;
+ const destination=b.dataset.page;
+ if(!NAV_PAGES.includes(destination))return;
+ page=destination;
+ document.querySelectorAll('#nav button').forEach(n=>n.classList.toggle('active',n===b));
+ if(cfg[page]&&!CORE_TABLES.includes(page)){
+  $('#content').innerHTML='<div class="panel"><p class="section-intro">正在載入資料…</p></div>';
+  try{data[page]=await fetchAll(page)}catch(error){toast('資料載入失敗：'+error.message,true);data[page]=[]}
+ }
+ render();
+};
 $('#logout').onclick=async()=>{await db.auth.signOut();location.reload()};
 $('#now').textContent=new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric'});
 window.PUICSA_READY=true;
