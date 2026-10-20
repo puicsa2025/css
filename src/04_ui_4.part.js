@@ -1,9 +1,4 @@
-ON 備份</button><p class="note">不包含受限制的會員聯絡資料。務必存放於受控位置；還原流程需由資訊部於測試環境演練。</p></div><div class="panel"><h3>角色職責</h3><div class="role-grid">'+Object.entries(STAFF_NAMES).map(([r,n])=>'<div><b>'+esc(n)+'</b><small>'+esc(r)+'</small></div>').join('')+'</div></div>';
- $('#backup').disabled=!ARCHIVE_ROLES.includes(role);
- $('#backup').onclick=async()=>{
-  const button=$('#backup');button.disabled=true;button.textContent='正在整理備份…';
-  try{
-    const permitted=tables.filter(k=>!(k==='contacts'&&!MEMBER_ROLES.includes(role))&&!(k==='registrations'&&!EVENT_ROLES.includes(role))&&!(k==='audit'&&!FINANCE_ROLES.includes(role)));
+'registrations'&&!EVENT_ROLES.includes(role))&&!(k==='audit'&&!FINANCE_ROLES.includes(role)));
     const records=await Promise.all(permitted.map(async k=>[k,await fetchAll(k)]));
     const snapshot=Object.fromEntries(records);
     const blob=new Blob([JSON.stringify({exported_at:new Date().toISOString(),role,data:snapshot},null,2)],{type:'application/json'});
@@ -16,9 +11,53 @@ ON 備份</button><p class="note">不包含受限制的會員聯絡資料。務�
  };
 }
 
-function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;if(f[2]==='yesno')payload[f[0]]=payload[f[0]]==='true';for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='events'&&Number(payload.capacity)===0)payload.capacity=null;if(k==='reimbursements'&&!r)payload.status='pending';if(k==='contacts'&&r){toast('聯絡資料可更新');}if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
+function openEditor(r){
+ const k=page,markup=editForm(k,r);
+ if(!markup){toast('此項目不可直接修改',true);return}
+ $('#editor').innerHTML=markup;
+ const panel=$('#edit-panel'),form=$('#entry-form'),cancel=$('#cancel');
+ if(panel)panel.scrollIntoView({behavior:'smooth',block:'start'});
+ if(cancel)cancel.onclick=()=>{$('#editor').innerHTML=''};
+ if(!form)return;
+ form.onsubmit=async event=>{
+  event.preventDefault();
+  const submit=form.querySelector('button[type="submit"]');
+  if(!submit||submit.disabled)return;
+  submit.disabled=true;
+  try{
+   const payload=Object.fromEntries(new FormData(form));
+   for(const fieldDef of cfg[k].fields){
+    const [name,label,type]=fieldDef;
+    if(type==='number'){
+     payload[name]=payload[name]===''||payload[name]===undefined?null:Number(payload[name]);
+    }else if(type==='semester'){
+     payload[name]=Number(payload[name]||0);
+    }else if(type==='datetime-local'){
+     payload[name]=payload[name]?new Date(payload[name]).toISOString():null;
+    }else if(type==='yesno'){
+     payload[name]=payload[name]==='true';
+    }
+   }
+   if(k==='members'){
+    payload.student_id=String(payload.student_id||'').trim();
+    payload.name=String(payload.name||'').trim();
+    payload.department=String(payload.department||DEFAULT_DEPARTMENT).trim()||DEFAULT_DEPARTMENT;
+    if(!payload.student_id||!payload.name)throw new Error('請填寫學號與姓名');
+   }
+   if(k==='events'&&Number(payload.capacity)===0)payload.capacity=null;
+   if(k==='reimbursements'&&!r)payload.status='pending';
+   if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);return}
+   const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);
+   const {error}=await query;
+   if(error)throw error;
+   try{await refresh();toast('資料已儲存')}
+   catch(refreshError){toast('資料已儲存，但重新載入失敗：'+refreshError.message,true)}
+  }catch(error){toast('儲存失敗：'+(error?.message||'未知錯誤'),true)}
+  finally{submit.disabled=false}
+ };
+}
 function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');const first=s.trimStart().charAt(0);if(first && '=+@-'.includes(first))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
-async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(role==='admin')role='information';if(!Object.hasOwn(STAFF_NAMES,role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+STAFF_NAMES[role];const moduleAccess={contacts:MEMBER_ROLES.includes(role),audit:FINANCE_ROLES.includes(role),registrations:EVENT_ROLES.includes(role),staff:ARCHIVE_ROLES.includes(role)};
+async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(!Object.hasOwn(STAFF_NAMES,role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+STAFF_NAMES[role];const moduleAccess={contacts:MEMBER_ROLES.includes(role),audit:FINANCE_ROLES.includes(role),registrations:EVENT_ROLES.includes(role),staff:ARCHIVE_ROLES.includes(role)};
 for(const [module,allow] of Object.entries(moduleAccess)){
  const nav=document.querySelector('[data-page="'+module+'"]');if(nav)nav.classList.toggle('hidden',!allow);
 }try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
@@ -47,6 +86,8 @@ $('#nav').onclick=async e=>{
  const b=e.target.closest('[data-page]');if(!b)return;
  const destination=b.dataset.page;
  if(!NAV_PAGES.includes(destination))return;
+ if(destination==='staff'&&!ARCHIVE_ROLES.includes(role))return toast('只有會長與副會長可管理幹部職務',true);
+ if(destination==='contacts'&&!MEMBER_ROLES.includes(role))return toast('此帳號無權檢視會員聯絡資料',true);
  page=destination;
  document.querySelectorAll('#nav button').forEach(n=>n.classList.toggle('active',n===b));
  if(cfg[page]&&!CORE_TABLES.includes(page)){
