@@ -47,8 +47,10 @@ create index if not exists css_payments_member_idx on public.css_payments(member
 create index if not exists css_ledger_date_idx on public.css_ledger(occurred_on desc);
 create index if not exists css_events_start_idx on public.css_events(starts_at);
 -- Payments to ledger: same database transaction via trigger; no duplicate entry.
+-- SECURITY DEFINER is required for this private trigger because client INSERT policies
+-- deliberately forbid inserting payment_id into the ledger directly. No exposed direct EXECUTE grants.
 create or replace function public.css_sync_payment_ledger() returns trigger language plpgsql
-set search_path = '' as $$
+security definer set search_path = '' as $
 begin
  insert into public.css_ledger(payment_id, occurred_on,direction,category,description,amount)
  values(new.id,new.paid_at,'income','系費','系費 '||new.academic_year||'-'||new.semester,new.amount)
