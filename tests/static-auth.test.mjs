@@ -9,9 +9,14 @@ test('login form cannot navigate to GET URL',()=>{
  assert.match(html,/id="login-button" disabled/);
  assert.match(html,/history\.replaceState/);
 });
-test('application uses locally hosted API module',()=>{
+test('application boots from a self-contained same-origin classic script',()=>{
  const app=readFileSync('app.js','utf8');
- assert.match(app,/from '\.\/api\.js'/);
+ assert.ok(!app.includes("import { db } from"));
+ assert.ok(app.includes('window.PUICSA_READY=true'));
+ assert.match(app,/grant_type=password/);
+ assert.match(app,/referrerPolicy:'no-referrer'/);
+ const html=readFileSync('index.html','utf8');
+ assert.ok(html.includes('<script defer src="./app.js?v='));
  assert.doesNotMatch(app,/esm\.sh|unpkg\.com/);
  const api=readFileSync('api.js','utf8');
  assert.match(api,/grant_type=password/);

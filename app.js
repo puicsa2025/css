@@ -1,4 +1,182 @@
-import { db } from './api.js';
+/* PUICSA Standalone browser bootstrap, built 2026-10-20. No external CDN, no ES module imports. */
+(() => {
+'use strict';
+// Public client configuration only. NEVER use Supabase secret or service_role API keys.
+const SUPABASE_URL = 'https://kcssbyfkzhtjrouwcufc.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Q86TNLgHRKvHU3VF27cKtQ_1LnvZ0AQ';
+
+// Same-origin Supabase adapter for the PUICSA static admin console.
+// Supports only the Auth and PostgREST operations used by this app.
+// User credentials are transmitted solely via HTTPS POST JSON bodies.
+
+const base = new URL(SUPABASE_URL).origin;
+if (!base.startsWith('https://') || !SUPABASE_PUBLISHABLE_KEY.startsWith('sb_publishable_')) {
+  throw new Error('Supabase 公開連線設定無效。');
+}
+const storageKey = 'puicsa_session_v2_' + new URL(base).host;
+let session = null;
+let refreshPromise = null;
+try {
+  session = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
+} catch {
+  try { sessionStorage.removeItem(storageKey); } catch { /* Blocked browser storage */ }
+}
+function persist(value) {
+  session = value;
+  try { if (value) sessionStorage.setItem(storageKey, JSON.stringify(value));
+  else sessionStorage.removeItem(storageKey); } catch { /* Continue using in-memory session when storage is denied */ }
+}
+function messageFor(response, body) {
+  if (response.status === 429) return '登入嘗試過於頻繁，請稍後再試。';
+  if (response.status === 400 || response.status === 401) {
+    const code = body?.error_code || body?.code;
+    if (code === 'email_not_confirmed') return '電子郵件尚未完成驗證。';
+    if (code === 'invalid_credentials') return '電子郵件或密碼不正確。';
+  }
+  if (response.status === 403) return '目前帳號沒有操作此資料的權限。';
+  return body?.msg || body?.message || body?.error_description || '請求失敗（HTTP ' + response.status + '）。';
+}
+async function readResponse(response) {
+  const raw = await response.text();
+  let body = null;
+  try { body = raw ? JSON.parse(raw) : null; } catch { /* No HTML error detail in UI */ }
+  if (!response.ok) {
+    const error = new Error(messageFor(response, body));
+    error.status = response.status;
+    throw error;
+  }
+  return body;
+}
+async function authRequest(path, body, bearer) {
+  const headers = { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type':'application/json' };
+  if (bearer) headers.Authorization = 'Bearer ' + bearer;
+  const response = await fetch(base + '/auth/v1/' + path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: 'no-store',
+    referrerPolicy: 'no-referrer'
+  });
+  return readResponse(response);
+}
+function adopt(payload) {
+  if (!payload?.access_token || !payload?.refresh_token || !payload?.user) {
+    throw new Error('驗證伺服器未回傳完整登入資料。');
+  }
+  persist({
+    access_token:payload.access_token,
+    refresh_token:payload.refresh_token,
+    expires_at:Math.floor(Date.now()/1000) + Number(payload.expires_in || 3600),
+    user:payload.user
+  });
+  return session;
+}
+async function token() {
+  if (!session) throw new Error('登入狀態已失效，請重新登入。');
+  if (session.expires_at > Date.now()/1000 + 90) return session.access_token;
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const payload = await authRequest('token?grant_type=refresh_token', {refresh_token: session.refresh_token});
+        return adopt(payload).access_token;
+      } catch (error) {
+        persist(null);
+        throw error;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+const auth = {
+  async signInWithPassword({email,password}) {
+    try {
+      const result = adopt(await authRequest('token?grant_type=password', {email,password}));
+      return {data:{session:result,user:result.user},error:null};
+    } catch(e) {
+      return {data:{session:null,user:null},error:e};
+    }
+  },
+  async getSession() {
+    if (!session) return {data:{session:null},error:null};
+    try {
+      const bearer = await token();
+      const user = await authRequest('user', undefined, bearer);
+      persist({...session,user});
+      return {data:{session},error:null};
+    } catch(e) {
+      persist(null);
+      return {data:{session:null},error:e};
+    }
+  },
+  async signOut() {
+    if (session) {
+      try { await authRequest('logout', {}, await token()); } catch { /* local logout still succeeds */ }
+    }
+    persist(null);
+    return {error:null};
+  }
+};
+async function rest(table, {method='GET', query, body, start=0, end=999}={}) {
+  if (!/^css_[a-z_]+$/.test(table)) return {data:null,error:new Error('資料表名稱不合法。')};
+  try {
+    const access = await token();
+    const url = new URL(base + '/rest/v1/' + table);
+    if (query) for (const [key,value] of Object.entries(query)) url.searchParams.set(key,value);
+    const headers = {
+      apikey:SUPABASE_PUBLISHABLE_KEY,
+      Authorization:'Bearer '+access,
+      Accept:'application/json'
+    };
+    if (method==='GET') {
+      headers.Range = start+'-'+end;
+      headers['Range-Unit'] = 'items';
+    } else {
+      headers['Content-Type'] = 'application/json';
+      headers.Prefer = 'return=representation';
+    }
+    const response = await fetch(url.href,{
+      method,headers,
+      body:body === undefined ? undefined : JSON.stringify(body),
+      cache:'no-store',
+      referrerPolicy:'no-referrer'
+    });
+    const data = await readResponse(response);
+    return {data:data || [],error:null};
+  } catch(e) { return {data:null,error:e}; }
+}
+const db = {
+  auth,
+  from(table) {
+    return {
+      select(columns='*') {
+        return {
+          order(field,{ascending=false}={}) {
+            if (!/^[a-z_]+$/.test(field)) throw new Error('排序欄位不合法。');
+            return {
+              range(start,end) {
+                return rest(table,{query:{select:columns,order:field+'.'+(ascending?'asc':'desc')},start,end});
+              }
+            };
+          }
+        };
+      },
+      insert(payload) {
+        return rest(table,{method:'POST',body:payload});
+      },
+      update(payload) {
+        return {
+          eq(field,value) {
+            if (!/^[a-z_]+$/.test(field)) throw new Error('查詢欄位不合法。');
+            return rest(table,{method:'PATCH',query:{[field]:'eq.'+String(value)},body:payload});
+          }
+        };
+      }
+    };
+  }
+};
+
 const $=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmt=n=>new Intl.NumberFormat('zh-TW',{style:'currency',currency:'TWD',maximumFractionDigits:0}).format(Number(n)||0);
 const cfg={
@@ -25,7 +203,7 @@ function editForm(k,r){const c=cfg[k];const editable=k==='ledger'&&r?.payment_id
 function render(){const el=$('#content');$('#page-title').textContent=page==='overview'?'營運總覽':cfg[page].title;if(page==='overview'){el.innerHTML=dashboard();$('#reload').onclick=async()=>{try{await refresh();toast('資料已更新')}catch(e){toast(e.message,true)}};return}const c=cfg[page],r=data[page]||[];el.innerHTML='<p class="section-intro">'+c.description+'</p><div class="panel"><div class="toolbar"><input id="search" placeholder="搜尋資料..."><div class="inline-actions"><button class="secondary" id="export">匯出 CSV</button>'+(canWrite(page)?'<button class="primary" id="add">＋ 新增資料</button>':'')+'</div></div><div id="records">'+tableView(page,r)+'</div></div><div id="editor"></div>';$('#search').oninput=e=>{const q=e.target.value.toLowerCase();$('#records').innerHTML=tableView(page,r.filter(x=>JSON.stringify(x).toLowerCase().includes(q)));bindEdits()};$('#export').onclick=()=>exportCSV(page);if($('#add'))$('#add').onclick=()=>openEditor(null);bindEdits()}
 function bindEdits(){document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openEditor((data[page]||[]).find(r=>r.id===b.dataset.edit)))}
 function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
-function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');if(/^[\\s\\x00-\\x1F]*[=+\\-@]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
+function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');const first=s.trimStart().charAt(0);if(first && '=+@-'.includes(first))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
 async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(!['admin','officer','treasurer'].includes(role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+role;const auditNav=document.querySelector('[data-page="audit"]');if(auditNav)auditNav.classList.toggle('hidden',role==='officer');try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
 $('#login-form').onsubmit=async e=>{
   e.preventDefault();
@@ -53,6 +231,7 @@ $('#now').textContent=new Date().toLocaleDateString('zh-TW',{year:'numeric',mont
 window.PUICSA_READY=true;
 $('#login-button').disabled=false;
 $('#login-button').textContent='安全登入 →';
+void (async () => {
 try {
   const {data:{session},error}=await db.auth.getSession();
   if(session)await enter(session);
@@ -60,3 +239,7 @@ try {
 } catch {
   $('#login-error').textContent='登入服務初始化發生問題，請重新整理。';
 }
+
+})().catch(() => { const box=document.querySelector('#login-error'); if(box)box.textContent='登入狀態檢查失敗，請重新整理後再試。'; });
+
+})();
