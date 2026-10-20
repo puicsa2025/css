@@ -19,6 +19,8 @@ jobs:
         run: |
           node --version
           node --check app.js
+          node --check api.js
+          node --test tests/*.test.mjs
           node --check config.js
       - name: Check deploy files
         run: |
@@ -51,7 +53,7 @@ jobs:
       - name: Prepare public site
         run: |
           mkdir -p _site
-          cp index.html style.css app.js config.js _site/
+          cp index.html style.css app.js api.js config.js _site/
           touch _site/.nojekyll
       - name: Upload site
         uses: actions/upload-pages-artifact@v4

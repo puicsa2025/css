@@ -1,7 +1,6 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.0';
-import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './config.js';
+import { db } from './api.js';
 const $=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const db=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY), fmt=n=>new Intl.NumberFormat('zh-TW',{style:'currency',currency:'TWD',maximumFractionDigits:0}).format(Number(n)||0);
+const fmt=n=>new Intl.NumberFormat('zh-TW',{style:'currency',currency:'TWD',maximumFractionDigits:0}).format(Number(n)||0);
 const cfg={
  members:{table:'css_members',title:'會員名冊',description:'統一管理學生資料與會員狀態',columns:[['student_id','學號'],['name','姓名'],['class_name','班級'],['year_level','年級'],['status','狀態']],fields:[['student_id','學號','text',true],['name','姓名','text',true],['department','系所'],['class_name','班級'],['year_level','年級','number'],['email','電子郵件','email'],['phone','聯絡電話']]},
  payments:{table:'css_payments',title:'系費管理',description:'繳費資料會自動同步收入主帳',columns:[['member_id','會員'],['academic_year','學年度'],['semester','學期'],['amount','實收金額'],['paid_at','繳費日期']],fields:[['member_id','會員','member',true],['academic_year','學年度','text',true],['semester','學期','semester',true],['amount','金額','number',true],['paid_at','繳費日期','date',true],['payment_method','繳費方式','method'],['note','備註']]},
@@ -28,8 +27,36 @@ function bindEdits(){document.querySelectorAll('[data-edit]').forEach(b=>b.oncli
 function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
 function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');if(/^[\\s\\x00-\\x1F]*[=+\\-@]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
 async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(!['admin','officer','treasurer'].includes(role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+role;const auditNav=document.querySelector('[data-page="audit"]');if(auditNav)auditNav.classList.toggle('hidden',role==='officer');try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
-$('#login-form').onsubmit=async e=>{e.preventDefault();$('#login-error').textContent='';const fd=new FormData(e.target);const {data,error}=await db.auth.signInWithPassword({email:fd.get('email'),password:fd.get('password')});if(error){$('#login-error').textContent='登入失敗：'+error.message;return}await enter(data.session)};
+$('#login-form').onsubmit=async e=>{
+  e.preventDefault();
+  const button=$('#login-button'),errorBox=$('#login-error');
+  errorBox.textContent='';
+  button.disabled=true;button.textContent='安全驗證中…';
+  try {
+    const fd=new FormData(e.currentTarget);
+    const email=String(fd.get('email')||'').trim();
+    const password=String(fd.get('password')||'');
+    if(!email||!password){errorBox.textContent='請輸入電子郵件與密碼。';return;}
+    const response=await db.auth.signInWithPassword({email,password});
+    if(response.error){errorBox.textContent='登入失敗：'+response.error.message;return;}
+    e.currentTarget.elements.password.value='';
+    await enter(response.data.session);
+  } catch {
+    errorBox.textContent='登入服務無法連線。請檢查網路或稍後重試。';
+  } finally {
+    button.disabled=false;button.textContent='安全登入 →';
+  }
+};
 $('#nav').onclick=e=>{const b=e.target.closest('[data-page]');if(!b)return;page=b.dataset.page;document.querySelectorAll('#nav button').forEach(n=>n.classList.toggle('active',n===b));render()};
 $('#logout').onclick=async()=>{await db.auth.signOut();location.reload()};
 $('#now').textContent=new Date().toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric'});
-const {data:{session}}=await db.auth.getSession();if(session)await enter(session);
+window.PUICSA_READY=true;
+$('#login-button').disabled=false;
+$('#login-button').textContent='安全登入 →';
+try {
+  const {data:{session},error}=await db.auth.getSession();
+  if(session)await enter(session);
+  else if(error)$('#login-error').textContent='先前登入狀態已失效，請重新登入。';
+} catch {
+  $('#login-error').textContent='登入服務初始化發生問題，請重新整理。';
+}
