@@ -195,6 +195,7 @@ const cfg={
  events:{table:'css_events',title:'活動管理',description:'活動規劃、預算、日期與執行進度',columns:[['title','活動名稱'],['starts_at','開始日期'],['location','地點'],['budget','預算'],['status','進度'],['registration_enabled','報名']],fields:[['title','活動名稱','text',true],['starts_at','開始時間','datetime-local',true],['ends_at','結束時間','datetime-local'],['location','活動地點'],['budget','預算','number'],['status','執行狀態','eventstatus'],['description','活動說明'],['capacity','報名人數上限','number'],['registration_enabled','開放報名','yesno'],['registration_deadline','報名截止時間','datetime-local']]},
  assets:{table:'css_assets',title:'器材管理',description:'器材數量、保管位置與使用狀態',columns:[['code','器材編號'],['name','品名'],['quantity','數量'],['location','保管地點'],['condition','狀態']],fields:[['code','器材編號'],['name','器材名稱','text',true],['quantity','數量','number',true],['location','保管位置'],['condition','使用狀態'],['note','備註']]},
  announcements:{table:'css_announcements',title:'公告管理',description:'內部重要訊息與工作通知',columns:[['title','公告主旨'],['content','內容'],['published_at','發布日期']],fields:[['title','公告主旨','text',true],['content','公告內容','textarea',true]]},
+ contacts:{table:'css_member_contacts',title:'會員聯絡資料',description:'僅授權幹部可讀寫聯絡資料',columns:[['member_id','會員'],['email','電子郵件'],['phone','電話']],fields:[['member_id','會員','member',true],['email','電子郵件','email'],['phone','電話']]},
  reimbursements:{table:'css_reimbursements',title:'核銷簽核',description:'提交、批准、退件；申請人不能自行審核',columns:[['ledger_id','帳務'],['status','進度'],['requested_at','申請日期'],['review_note','簽核註記']],fields:[['ledger_id','支出帳務','expense',true],['status','核銷狀態','approval'],['review_note','簽核說明'],['attachment_url','佐證連結','url']]},
  periods:{table:'css_periods',title:'學期結算封存',description:'只有會長、副會長與資訊部可封存／重新開啟；異動皆留痕',columns:[['academic_year','學年度'],['semester','學期'],['status','狀態'],['closed_at','封存時間'],['close_note','異動原因']],fields:[['academic_year','學年度','text',true],['semester','學期','semester',true]]},
  period_audit:{table:'css_period_audit',title:'學期封存稽核',description:'封存與重新開啟的不可直接修改紀錄',columns:[['changed_at','異動日期'],['old_status','原狀態'],['new_status','新狀態'],['note','原因'],['changed_by','操作人員']],fields:[]},
@@ -202,9 +203,9 @@ const cfg={
  loans:{table:'css_asset_loans',title:'器材借還',description:'登記領用、應還日期及實際歸還紀錄',columns:[['asset_id','器材'],['borrower','借用人'],['quantity','借用數'],['due_at','應還時間'],['returned_at','歸還時間']],fields:[['asset_id','器材','asset',true],['borrower','借用人','text',true],['quantity','借用數量','number',true],['due_at','預計歸還','datetime-local'],['returned_at','實際歸還','datetime-local'],['notes','備註']]},
  audit:{table:'css_finance_audit',title:'財務稽核',description:'所有系費與收支異動的唯讀紀錄（僅供管理員及財務）',columns:[['changed_at','時間'],['source_table','資料表'],['operation','操作'],['record_id','資料編號'],['actor_uid','操作帳號']],fields:[]}
 };
-const tables=['members','payments','ledger','reimbursements','periods','period_audit','events','registrations','assets','loans','announcements','audit'];let page='overview', data={}, currentUser=null,role='';
+const tables=['members','contacts','payments','ledger','reimbursements','periods','period_audit','events','registrations','assets','loans','announcements','audit'];let page='overview', data={}, currentUser=null,role='';
 function toast(msg,bad=false){const el=$('#toast');el.textContent=msg;el.className=bad?'bad':'';el.style.display='block';setTimeout(()=>el.style.display='none',5500)}
-function canWrite(p){if(['audit','period_audit','registrations'].includes(p))return false;return (p==='ledger'||p==='payments'||p==='reimbursements')?FINANCE_ROLES.includes(role):p==='periods'?ARCHIVE_ROLES.includes(role):p==='events'?EVENT_ROLES.includes(role):p==='assets'||p==='loans'?ASSET_ROLES.includes(role):p==='members'?MEMBER_ROLES.includes(role):p==='announcements'?ANNOUNCE_ROLES.includes(role):false}
+function canWrite(p){if(['audit','period_audit','registrations'].includes(p))return false;return (p==='ledger'||p==='payments'||p==='reimbursements')?FINANCE_ROLES.includes(role):p==='periods'?ARCHIVE_ROLES.includes(role):p==='events'?EVENT_ROLES.includes(role):p==='assets'||p==='loans'?ASSET_ROLES.includes(role):p==='members'||p==='contacts'?MEMBER_ROLES.includes(role):p==='announcements'?ANNOUNCE_ROLES.includes(role):false}
 async function fetchAll(k){const rows=[];let from=0;for(;;){const {data:page,error}=await db.from(cfg[k].table).select(k==='members'?'id,student_id,name,department,class_name,year_level,status,joined_at,created_at':'*').order(['audit','period_audit'].includes(k)?'changed_at':'created_at',{ascending:false}).range(from,from+999);if(error)throw error;rows.push(...(page||[]));if(!page||page.length<1000)break;from+=1000;}return rows}
 async function refresh(){const entries=await Promise.all(tables.map(async k=>[k,await fetchAll(k)]));for(const [k,rows] of entries)data[k]=rows;render()}
 function mapMember(v){const m=(data.members||[]).find(x=>x.id===v);return m?m.name+' ('+m.student_id+')':'—'}
@@ -227,6 +228,7 @@ function editForm(k,r){const c=cfg[k];const editable=(k==='ledger'&&r?.payment_i
 function render(){
  const el=$('#content');
  if(page==='handover'){renderHandover();return}
+ if(page==='staff'){renderStaff();return}
  $('#page-title').textContent=page==='overview'?'營運總覽':cfg[page].title;
  if(page==='overview'){
   el.innerHTML=dashboard();
@@ -287,9 +289,9 @@ function printReceipt(id){
  if(!p)return;
  const member=mapMember(p.member_id);
  const html='<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><title>PUICSA 繳費收據</title><style>body{font:16px sans-serif;max-width:650px;margin:60px auto;line-height:2.4}h1{font-size:24px;border-bottom:3px solid #173b60}strong{font-size:24px}@media print{button{display:none}}</style><h1>PUICSA 系學會繳費收據</h1><p>收據編號：'+esc(p.id)+'<br>會員：'+esc(member)+'<br>學年度：'+esc(p.academic_year)+'／第'+esc(p.semester)+'學期<br>日期：'+esc(p.paid_at)+'<br>付款方式：'+esc(p.payment_method)+'</p><strong>實收金額：'+esc(fmt(p.amount))+'</strong><p>本收據依系統登錄資料產製，必要時請向總務確認入帳。</p><button onclick="print()">列印／另存 PDF</button></html>';
- const win=window.open('','_blank','noopener,noreferrer');
+ const win=window.open('','_blank');
  if(!win)return toast('瀏覽器封鎖了收據視窗，請允許快顯視窗',true);
- win.document.write(html);win.document.close();
+ win.opener=null;win.document.write(html);win.document.close();
 }
 function csvRows(text){
  const grid=[],row=[];let v='',quoted=false;
@@ -321,6 +323,35 @@ async function importMembers(e){
  if(error)return toast('匯入失敗：'+error.message,true);
  await refresh();toast('會員批次匯入成功');
 }
+async function staffRpc(name,payload={}){
+ const access=await token();
+ const result=await fetch(SUPABASE_URL+'/rest/v1/rpc/'+name,{
+  method:'POST',headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:'Bearer '+access,'Content-Type':'application/json'},
+  body:JSON.stringify(payload),cache:'no-store',referrerPolicy:'no-referrer'
+ });
+ let body;
+ try{body=await result.json()}catch{body=null}
+ if(!result.ok)throw Error(body?.message||'伺服器無法完成請求（'+result.status+'）');
+ return body;
+}
+async function renderStaff(){
+ $('#page-title').textContent='幹部與權限管理';
+ $('#content').innerHTML='<p class="section-intro">只有會長、副會長能指派職務。資訊部可檢視幹部清單；建立新 Auth 使用者仍需於 Supabase 安全管理介面進行。</p><div class="panel"><h3>正在讀取授權帳號…</h3></div>';
+ try{
+  const rows=await staffRpc('css_staff_directory');
+  const assignable=['president','vice_president'].includes(role);
+  $('#content').innerHTML='<div class="panel"><h3>幹部帳號</h3><div class="tablewrap"><table><thead><tr><th>帳號</th><th>目前職務</th><th>調整職務</th></tr></thead><tbody>'+
+  rows.map(r=>'<tr><td>'+esc(r.email)+'</td><td>'+esc(STAFF_NAMES[r.staff_role]||'尚未授權')+'</td><td>'+(
+  assignable?'<div class="inline-actions"><select aria-label="選擇職務" data-staff-role="'+esc(r.user_id)+'">'+Object.entries(STAFF_NAMES).map(([key,name])=>'<option value="'+esc(key)+'" '+(r.staff_role===key?'selected':'')+'>'+esc(name)+'</option>').join('')+'</select><button class="secondary" data-assign="'+esc(r.user_id)+'">更新</button></div>':'只有會長／副會長可指派')+'</td></tr>').join('')+'</tbody></table></div></div>';
+  document.querySelectorAll('[data-assign]').forEach(btn=>btn.onclick=async()=>{
+   const id=btn.dataset.assign,chosen=document.querySelector('[data-staff-role="'+id+'"]').value;
+   if(!confirm('確認將此帳號指派為「'+STAFF_NAMES[chosen]+'」？'))return;
+   btn.disabled=true;
+   try{toast(await staffRpc('css_assign_staff_role',{p_user_id:id,p_role:chosen}));await renderStaff()}catch(e){toast(e.message,true)}finally{btn.disabled=false}
+  });
+ }catch(e){$('#content').innerHTML='<div class="panel"><h3>幹部資料無法讀取</h3><p class="error">'+esc(e.message)+'</p></div>'}
+}
+
 function renderHandover(){
  $('#page-title').textContent='交接與資料備份';
  $('#content').innerHTML='<div class="panel"><h3>系學會交接中心</h3><p class="section-intro">權限更動由 Supabase 專案持有人審核。總務封存帳務、會長確認年度交接，請務必另存離線加密備份。</p><p>你的職務：<b>'+esc(STAFF_NAMES[role]||role)+'</b></p><button id="backup" class="primary">匯出可讀取的系統資料 JSON 備份</button><p class="note">不包含受限制的會員聯絡資料。務必存放於受控位置；還原流程需由資訊部於測試環境演練。</p></div><div class="panel"><h3>角色職責</h3><div class="role-grid">'+Object.entries(STAFF_NAMES).map(([r,n])=>'<div><b>'+esc(n)+'</b><small>'+esc(r)+'</small></div>').join('')+'</div></div>';
@@ -331,7 +362,7 @@ function renderHandover(){
  };
 }
 
-function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;if(f[2]==='yesno')payload[f[0]]=payload[f[0]]==='true';for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='reimbursements'&&!r)payload.status='pending';if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
+function openEditor(r){const k=page;$('#editor').innerHTML=editForm(k,r);$('#editor').scrollIntoView({behavior:'smooth',block:'start'});$('#cancel').onclick=()=>$('#editor').innerHTML='';$('#entry-form').onsubmit=async e=>{e.preventDefault();const submit=$('#entry-form button[type=submit]');submit.disabled=true;const payload=Object.fromEntries(new FormData(e.target));for(const f of cfg[k].fields)if(f[2]==='number'||f[2]==='semester')payload[f[0]]=Number(payload[f[0]]||0);for(const f of cfg[k].fields)if(f[2]==='datetime-local')payload[f[0]]=payload[f[0]]?new Date(payload[f[0]]).toISOString():null;if(f[2]==='yesno')payload[f[0]]=payload[f[0]]==='true';for(const key of ['year_level'])if(k==='members'&&!payload[key])payload[key]=null;if(k==='events'&&Number(payload.capacity)===0)payload.capacity=null;if(k==='reimbursements'&&!r)payload.status='pending';if(k==='contacts'&&r){toast('聯絡資料可更新');}if(k==='ledger'&&r?.payment_id){toast('系費衍生帳務禁止手動修改',true);submit.disabled=false;return}const query=r?db.from(cfg[k].table).update(payload).eq('id',r.id):db.from(cfg[k].table).insert(payload);const {error}=await query;submit.disabled=false;if(error){toast('儲存失敗：'+error.message,true);return}try{await refresh();toast('資料已儲存')}catch(e){toast(e.message,true)}}}
 function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v=>{let s=String(v??'');const first=s.trimStart().charAt(0);if(first && '=+@-'.includes(first))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'};const lines=[fields.map(f=>quote(f[1])).join(','),...rows.map(r=>fields.map(f=>quote(f[0]==='member_id'?mapMember(r[f[0]]):r[f[0]])).join(','))];const blob=new Blob(['\uFEFF'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='PUICSA-'+k+'.csv';a.click();URL.revokeObjectURL(url)}
 async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(role==='admin')role='information';if(!Object.hasOwn(STAFF_NAMES,role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+STAFF_NAMES[role];const auditNav=document.querySelector('[data-page="audit"]');if(auditNav)auditNav.classList.toggle('hidden',role==='officer');try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
 $('#login-form').onsubmit=async e=>{
