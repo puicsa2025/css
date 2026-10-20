@@ -1,54 +1,64 @@
-# PUICSA 系學會管理平台
+# PUICSA 系學會管理平台 v2
 
-靜宜大學系學會營運管理系統。繁體中文 RWD 單頁後台，前端採純 HTML/CSS/JavaScript，後端採 Supabase Auth + PostgreSQL RLS。
+[後台](https://puicsa2025.github.io/css/) · [Supabase](https://supabase.com/dashboard/project/kcssbyfkzhtjrouwcufc) · [GitHub Actions](https://github.com/puicsa2025/css/actions)
 
-## 專案連結
-- [GitHub 原始碼](https://github.com/puicsa2025/css)
-- [Supabase 專案](https://supabase.com/dashboard/project/kcssbyfkzhtjrouwcufc)
-- 預計 GitHub Pages 網址：`https://puicsa2025.github.io/css/`（**僅在 Pages 啟用且部署成功後才可使用**）
+使用 GitHub Pages、Supabase Auth／PostgreSQL／RLS 的系學會營運系統。
 
-## 已完成的模組
-- 營運儀表板：收入、支出、帳面餘額、會員、活動、待核銷
-- 會員名冊：學號、系級、聯絡資料、會員狀態
-- 系費：會員／學年／學期的唯一收款紀錄，資料庫觸發器自動入收入主帳
-- 收支：分類、核銷狀態、憑證連結、CSV 匯出
-- 活動與預算、器材資產、公告
-- 財務稽核：新增、修改、刪除事件的唯讀歷史資料
-- 三種存取角色：admin / treasurer / officer；沒有公開註冊畫面
+## 功能
+- 十二種職務權限：會長、副會長、執行秘書、總務長、活動、公關、美宣、學術、體育、器材、事務、資訊
+- 會員名冊、限制存取的聯絡資料、會員 CSV 批次匯入及匯出
+- 系費、一般收支、選擇學期、核銷申請與非本人簽核、可列印的繳費收據
+- 學期結算、封存、經特定權限更正及封存／帳務／核銷稽核
+- 活動管理、公開報名頁面、可分享的報名連結與 QR Code、報名名單及簽到
+- 器材資料與借還、數量檢查
+- 交接中心、授權角色查詢／指派、匯出 JSON 快照
+- Chrome 真實頁面載入及模擬登入進入後台的 CI 測試
 
-## 現有 Supabase 連線
-- Project reference: `kcssbyfkzhtjrouwcufc`
-- Region: Tokyo `ap-northeast-1`
-- 前端 `config.js` 僅使用可公開的 publishable key。**禁止把 service_role 或 secret key 放在前端／GitHub 公開程式庫。**
-- 首次資料庫 migration `puicsa_initial_schema` 已套用，後續 `puicsa_rls_optimization_financial_audit` 與 `puicsa_split_write_policies` 已套用。
+## 權限矩陣
+| 身分 | 財務檢視 | 財務修改 | 封存後更正／學期封存 | 管理幹部職務 |
+|---|---|---|---|---|
+| 會長 president | 可 | 可 | 可 | 可 |
+| 副會長 vice_president | 可 | 可 | 可 | 可 |
+| 執行秘書 secretary | 可 | 可 | 不可 | 不可 |
+| 總務長 treasurer | 可 | 可 | 不可 | 不可 |
+| 資訊部 information | 可 | 可 | 可 | 只能檢視 |
+| 其餘活動、公關、美宣、學術、體育、器材、事務 | 可 | 不可 | 不可 | 不可 |
 
-## 上線前管理者必做（尚未由連接器完成）
-1. Supabase Dashboard > Authentication > Providers/Sign In（介面可能隨版本微調），**停用 Email 公開註冊 / Allow new users to sign up**。前端沒註冊按鈕不等於已停用後端註冊。
-2. Supabase Dashboard > Authentication > Users，由管理員建立幹部帳號、發送安全登入方式。不使用預設公開管理員或硬編碼密碼。
-3. 在後端管理介面（或受信任的管理 SQL 操作）設定目標帳號的 **app_metadata.css_role** 為 `admin`、`treasurer`、`officer`。角色決策不得使用可由使用者修改的 `user_metadata`。
-   僅在**核對帳號確屬授權管理員**後，才於 SQL Editor 執行（更換電子郵件）：
-   ```sql
-   update auth.users
-   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"css_role":"admin"}'::jsonb
-   where email = 'VERIFIED_ADMIN_EMAIL';
-   ```
-   更改角色後請重新登入，以更新使用者 JWT。
-4. GitHub Repo [Settings > Pages](https://github.com/puicsa2025/css/settings/pages)：Build and deployment > Source 設為 **GitHub Actions**。本 repo 已備妥 `.github/workflows/pages.yml`，合併到 main 後會觸發網站部署。
-5. 完成後檢查 [GitHub Actions](https://github.com/puicsa2025/css/actions)，確認 Pages deploy 為成功，然後開啟 `https://puicsa2025.github.io/css/` 驗證 UI。
-6. 登入真實管理員與財務幹部帳號，測試新增會員、系費入帳、修改金額、財務稽核及無權限帳號存取（不應能讀寫）。
-7. 制定經費核銷、附件保存、資料備份、帳號離職撤權及個資告知／存取規範。
+其他模組權限以 RLS 各專責部門職掌設定。會員聯絡資料僅會長、副會長、秘書、總務、資訊可讀取；報名參加者資料僅活動管理職務可讀。資料庫 role 以 **Supabase Auth app_metadata.css_role** 為準，不能從前端自行提升權限。
 
-## 本次測試紀錄
-- 資料庫 schema/migrations 已套用。
-- 測試資料在 transaction 中產生並於 ROLLBACK 後還原，不留下假帳。
-- 以資料庫交易模擬財務角色，驗證收款新增、修改後，同一筆收入同步更新、不重複入帳。
-- 稽核測試預期產生四筆異動事件並通過檢查。
-- Security Advisor 沒有列出問題；Performance Advisor 僅有新索引「尚未使用」資訊提示。
-- GitHub Actions 的 JS 靜態驗證與 Pages 部署另以 [Actions 執行結果](https://github.com/puicsa2025/css/actions) 為準。
-- **尚未進行真實登入的端到端瀏覽器測試、獨立滲透測試或正式財務稽核驗收。**
+**舊版 css_role=admin** 僅映射成資訊部過渡身分，不會自動被認定為會長。首次須由 Supabase 專案擁有人核實實際會長帳號後，於管理控制台或受信任的 SQL Editor 指派：
+```sql
+update auth.users
+set raw_app_meta_data = jsonb_set(
+  coalesce(raw_app_meta_data,'{}'::jsonb),
+  '{css_role}', '"president"', true)
+where id = 'VERIFIED_PRESIDENT_USER_UUID'::uuid;
+```
+副會長亦同，改為 `vice_president`。初始化後會長／副會長可在「幹部職務管理」更改其他**既有** Supabase Auth 使用者的職務。新增登入帳號仍需從後端 Auth Users 建立；請關閉公開註冊、要求強密碼與 MFA。更新職務後須重新登入刷新 JWT。
 
-## 財務與資料安全備註
-- RLS 是伺服器端存取保護，不依賴前端隱藏按鈕。
-- 財務稽核表不開放瀏覽器直接新增、更改或刪除。
-- 目前採單階段的核銷狀態更新，未實作雙人簽核、發票／收據實體上傳或自動備份恢復；正式會計／核銷流程需要另行驗收。
-- 免費方案仍應監測使用額度、備份與超額政策。
+## 財務流程
+1. 建立年度／學期（初始提供 115 學年度第 1 學期）。
+2. 新增會員，收系費時選擇會員、學年及學期；觸發器自動同步收入主帳，不能另建重複收入。
+3. 一般收支必須指定所屬學期；核銷需另一名獲授權者審核。
+4. 只有會長、副會長與資訊部能進行學期封存或重新開啟，需輸入原因，產生封存稽核紀錄。封存後其他幹部無法修改財務。
+5. 財務異動觸發器寫入歷史紀錄；已簽核核銷不得直接覆蓋，應建立更正／新申請。
+
+## 活動報名與 QR
+在「活動管理」新增活動，狀態選「進行中（open）」且「開放報名」設為開放，按該活動的「表單 / QR」，分享公開 `register.html?event=UUID` 報名網址／QR Code。報名者填姓名、學號、Email；每場每學號至多一次，名額額滿即停止受理。參加者名單受 RLS 限制，公眾不能列出報名紀錄。
+
+QR 圖片目前由第三方 QR 服務生成，會收到公開活動報名 URL，但不會收到表單填入的個資。對外大量開放前，**必須增加 CAPTCHA／Edge Function 限流及個資告知政策**；單純的 honeypot 與學號唯一限制不足以抵禦自動灌報名。
+
+## 匯入、備份與交接
+會員匯入 CSV 至少包含英文標題 `student_id,name`；可選 `department,class_name,year_level,status`，每次上限 300 筆。CSV 匯出適用各資料表。交接中心的 JSON 快照屬手動備份，**不等於資料庫自動備份，也尚無按鈕式還原**。請另外安排 Supabase 方案內的備份／離線加密匯出，並在測試環境定期演練還原。學年交接前確認簽核、封存、幹部撤權及資料保留／刪除規範。
+
+## 測試與部署
+- 每次 PR 都跑 Node 語法、模擬 Auth／PostgREST、真實 Chrome 啟動及非同步登入進入儀表板測試。
+- PR 不能自動部署到正式 Pages；合併 main 且測試成功後才部署。
+- Supabase database migrations 順序：原始 schema、舊版 audit/role policy、`20261020_association_v2.sql`、`20261020_registration_idempotency.sql`、`20261020_audit_stock.sql`、`20261020_staff_role_security_fix.sql`、`20261020_dedupe_stock_guard.sql`。
+- 資料庫測試以 ROLLBACK 保證不留下假會員、假收支或假報名。
+- **仍需實際三種以上登入帳號及使用者驗收**，不能把模擬 JWT／Chrome 假 API 視為正式多使用者登入完成證明。
+
+## 安全現況
+所有公開表格啟用 RLS。Supabase Advisor 對公開報名與幹部指派的 SECURITY DEFINER RPC 提出提示：這些端點是刻意開放，但已做角色與資料驗證；需持續稽核，並考慮移至非公開 schema／Edge Function。Supabase 免費方案可能未提供外洩密碼防護，請採強密碼和管理員 MFA。真正 HTTPS 安全標頭（例如 CSP、HSTS）需由網頁託管層管理，HTML 的 meta CSP 不等同服務器標頭。
+
+> 特別注意：未完成 CAPTCHA、備份還原演練、真實帳號整合測試與正式資料處理規範前，避免立即收集大量學生個資或處理正式核銷。
