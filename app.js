@@ -207,20 +207,21 @@ function exportCSV(k){const rows=data[k]||[],fields=cfg[k].columns;const quote=v
 async function enter(session){currentUser=session?.user;if(!currentUser){$('#login').classList.remove('hidden');$('#app').classList.add('hidden');return}role=currentUser.app_metadata?.css_role||'';if(!['admin','officer','treasurer'].includes(role)){$('#login-error').textContent='此帳號尚未取得管理權限，請聯絡系統管理者。';await db.auth.signOut();return}$('#login').classList.add('hidden');$('#app').classList.remove('hidden');$('#user-badge').textContent=currentUser.email+' · '+role;const auditNav=document.querySelector('[data-page="audit"]');if(auditNav)auditNav.classList.toggle('hidden',role==='officer');try{await refresh()}catch(e){toast('載入失敗：'+e.message,true)}}
 $('#login-form').onsubmit=async e=>{
   e.preventDefault();
+  const form=e.currentTarget;
   const button=$('#login-button'),errorBox=$('#login-error');
   errorBox.textContent='';
   button.disabled=true;button.textContent='安全驗證中…';
   try {
-    const fd=new FormData(e.currentTarget);
+    const fd=new FormData(form);
     const email=String(fd.get('email')||'').trim();
     const password=String(fd.get('password')||'');
     if(!email||!password){errorBox.textContent='請輸入電子郵件與密碼。';return;}
     const response=await db.auth.signInWithPassword({email,password});
     if(response.error){errorBox.textContent='登入失敗：'+response.error.message;return;}
-    e.currentTarget.elements.password.value='';
+    form.elements.password.value='';
     await enter(response.data.session);
-  } catch {
-    errorBox.textContent='登入服務無法連線。請檢查網路或稍後重試。';
+  } catch(err) {
+    errorBox.textContent=err?.message?.includes('fetch')?'網路請求失敗，請檢查網路或服務設定。':'登入後初始化失敗：'+String(err?.message||'未知錯誤');
   } finally {
     button.disabled=false;button.textContent='安全登入 →';
   }
