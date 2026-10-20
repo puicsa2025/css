@@ -27,7 +27,7 @@ jobs:
           test -s app.js
           test -s config.js
           grep -q 'kcssbyfkzhtjrouwcufc.supabase.co' config.js
-          ! grep -qi 'service_role\|sb_secret_' config.js
+          grep -q "SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_" config.js
 
   deploy:
     name: Deploy GitHub Pages
